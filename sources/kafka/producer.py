@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'reddit_config.yml')
+CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'configuration', 'reddit_config.yml'))
 try:
     with open(CONFIG_PATH, 'r') as f:
         reddit_config = yaml.safe_load(f)
