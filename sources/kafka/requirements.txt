@@ -1,4 +1,0 @@
-praw
-kafka-python
-python-dotenv
-pyyaml
