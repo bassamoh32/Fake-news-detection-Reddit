@@ -1,0 +1,5 @@
+HOST: "cassandra"
+KEYSPACE: "reddit_keyspace"
+TABLE: "reddit_table"
+USERNAME: "admin"
+PASSWORD: "admin"

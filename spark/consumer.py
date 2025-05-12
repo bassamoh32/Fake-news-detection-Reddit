@@ -1,124 +1,126 @@
 import os
 import sys
-import logging
-from typing import Dict, Any
-from pathlib import Path
-from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, from_unixtime
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
+from pyspark.sql.types import StructType, StringType, FloatType, IntegerType, BooleanType, TimestampType
 
-CASSANDRA_CONFIG = {
-    "host": "cassandra",
-    "port": 9042,
-    "username": "admin",
-    "password": "admin"
-}
+# Add the current directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-KAFKA_CONFIG = {
-    "bootstrap_servers": "kafka:19092",
-    "topic": "reddit-posts",
-    "starting_offsets": "latest"
-}
+# Import CassandraManager
+from cassandra_manager import CassandraManager
 
-REDDIT_SCHEMA = StructType([
-    StructField("id", StringType(), nullable=False),
-    StructField("title", StringType()),
-    StructField("author", StringType()),
-    StructField("subreddit", StringType()),
-    StructField("upvotes", IntegerType()),
-    StructField("url", StringType()),
-    StructField("created_utc", FloatType()),
-    StructField("text", StringType())
-])
+def load_config(config_file):
+    """Load YAML configuration file from ./configuration/ directory"""
+    config_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        'configuration',
+        config_file
+    )
+    try:
+        import yaml
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        print(f"Failed to load config {config_file}: {str(e)}")
+        raise
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('consumer.log')
-    ]
+# Load configurations
+kafka_config = load_config('kafka.yml')
+cassandra_config = load_config('cassandra.yml')
+
+# Initialize Cassandra connection
+cassandra = CassandraManager(
+    host=cassandra_config['HOST'],
+    keyspace=cassandra_config['KEYSPACE'],
+    table=cassandra_config['TABLE']
 )
-logger = logging.getLogger(__name__)
+cassandra.connect()
 
-def create_spark_session() -> SparkSession:
-    
-    return SparkSession.builder \
+def process_batch(df, batch_id):
+    """Process each batch of data and write to Cassandra"""
+    if not df.isEmpty():
+        print(f"Processing batch {batch_id} with {df.count()} records")
+
+        try:
+            # Select only required columns
+            final_df = df.select("id", "timestamp", "subreddit", "text", "title") \
+                         .filter(col("id").isNotNull() & col("timestamp").isNotNull())
+
+            # Write to Cassandra
+            final_df.write \
+                .format("org.apache.spark.sql.cassandra") \
+                .options(
+                    table=cassandra_config['TABLE'],
+                    keyspace=cassandra_config['KEYSPACE']
+                ) \
+                .mode("append") \
+                .save()
+
+            print(f"Successfully wrote batch {batch_id} to Cassandra")
+        except Exception as e:
+            print(f"Error writing to Cassandra: {str(e)}")
+    else:
+        print(f"Batch {batch_id} is empty, skipping write")
+
+def start_spark():
+    """Start Spark Streaming to consume Reddit data from Kafka."""
+    spark = SparkSession.builder \
         .appName("RedditStreamProcessor") \
-        .master("spark://spark-master:7077") \
         .config("spark.jars.packages", ",".join([
             "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.1",
-            "com.datastax.spark:spark-cassandra-connector_2.12:3.2.0"
+            "com.datastax.spark:spark-cassandra-connector_2.12:3.3.0"
         ])) \
-        .config("spark.cassandra.connection.host", CASSANDRA_CONFIG["host"]) \
-        .config("spark.cassandra.connection.port", CASSANDRA_CONFIG["port"]) \
-        .config("spark.cassandra.auth.username", CASSANDRA_CONFIG["username"]) \
-        .config("spark.cassandra.auth.password", CASSANDRA_CONFIG["password"]) \
+        .config("spark.cassandra.connection.host", cassandra_config['HOST']) \
+        .config("spark.cassandra.auth.username", cassandra_config.get('USERNAME', '')) \
+        .config("spark.cassandra.auth.password", cassandra_config.get('PASSWORD', '')) \
         .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoints") \
-        .config("spark.sql.shuffle.partitions", "4") \
         .getOrCreate()
 
-def process_batch(batch_df: DataFrame, batch_id: int) -> None:
-    try:
-        processed_df = batch_df.withColumn(
-            "created_at", 
-            from_unixtime(col("created_utc"))
-        ).drop("created_utc")
-        
-        (processed_df.write
-         .format("org.apache.spark.sql.cassandra")
-         .mode("append")
-         .options(
-             table="reddit_posts", 
-             keyspace="reddit",
-             ttl="864000"  
-         )
-         .save())
-        
-        logger.info(f"Processed batch {batch_id} with {processed_df.count()} records")
-    except Exception as e:
-        logger.error(f"Failed batch {batch_id}: {str(e)}")
+    # Define schema for Reddit data
+    schema = StructType() \
+        .add("id", StringType()) \
+        .add("title", StringType()) \
+        .add("author", StringType()) \
+        .add("subreddit", StringType()) \
+        .add("upvotes", IntegerType()) \
+        .add("url", StringType()) \
+        .add("created_utc", FloatType()) \
+        .add("text", StringType()) \
+        .add("is_self", BooleanType())
 
-def initialize_cassandra():
-    from cassandra_manager import CassandraManager
-    from utils.schema import CassandraSchema
-    
-    with CassandraManager(**CASSANDRA_CONFIG) as session:
-        CassandraSchema.create_keyspace(session)
-        CassandraSchema.create_table(session)
-        logger.info("Cassandra schema initialized")
+    # Read from Kafka
+    df = spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", kafka_config['BROKER']) \
+        .option("subscribe", kafka_config['TOPIC']) \
+        .option("startingOffsets", "earliest") \
+        .load()
 
-def start_streaming():
-    try:
-        initialize_cassandra()
-        spark = create_spark_session()
-        
-        df = (spark.readStream
-              .format("kafka")
-              .option("kafka.bootstrap.servers", KAFKA_CONFIG["bootstrap_servers"])
-              .option("subscribe", KAFKA_CONFIG["topic"])
-              .option("startingOffsets", KAFKA_CONFIG["starting_offsets"])
-              .option("failOnDataLoss", "false")
-              .load())
-        
-        query = (df.select(from_json(col("value").cast("string"), REDDIT_SCHEMA).alias("data"))
-                .select("data.*")
-                .writeStream
-                .foreachBatch(process_batch)
-                .outputMode("append")
-                .option("truncate", "false")
-                .start())
-        
-        logger.info("Streaming pipeline started")
-        query.awaitTermination()
-        
-    except Exception as e:
-        logger.critical(f"Pipeline failed: {e}", exc_info=True)
-        raise
-    finally:
-        if 'spark' in locals():
-            spark.stop()
-            logger.info("Spark session stopped")
+    # Parse the JSON data
+    json_df = df.selectExpr("CAST(value AS STRING) as json_str") \
+        .select(from_json(col("json_str"), schema).alias("data")) \
+        .select("data.*")
+
+    # Add timestamp column
+    processed_df = json_df.withColumn(
+        "timestamp",
+        from_unixtime(col("created_utc")).cast(TimestampType())
+    )
+
+    # Write to Cassandra
+    query = processed_df.writeStream \
+        .foreachBatch(process_batch) \
+        .start()
+
+    print("Spark streaming started. Waiting for data from Kafka...")
+    query.awaitTermination()
 
 if __name__ == "__main__":
-    start_streaming()
+    try:
+        start_spark()
+    except Exception as e:
+        print(f"Application error: {str(e)}")
+    finally:
+        if 'cassandra' in locals():
+            cassandra.close()

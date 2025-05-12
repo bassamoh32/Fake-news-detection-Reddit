@@ -7,7 +7,7 @@ COPY ./spark/requirements.txt .
 COPY ./spark /app
 
 # Install dependencies
-RUN pip install --no-cache-dir --upgrade -r requirements.txt && 
+RUN pip install --no-cache-dir --upgrade -r requirements.txt 
 
 # Set Python path
 ENV PYTHONPATH=/app
