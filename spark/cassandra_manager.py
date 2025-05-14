@@ -9,18 +9,20 @@ logger = logging.getLogger(__name__)
 from utils.schema import CassandraSchema
 
 class CassandraManager:
-    def __init__(self, host: str, keyspace: str, table: str):
+    def __init__(self, host: str, keyspace: str, table: str, username: str, password: str):
         self.host = host
         self.keyspace = keyspace
         self.table = table
+        self.username = username
+        self.password = password
         self.cluster = None
         self.session = None
 
     def connect(self):
         try:
             auth_provider = PlainTextAuthProvider(
-                username="admin",
-                password="admin"
+                username=self.username,
+                password=self.password
             )
             self.cluster = Cluster(
                 [self.host],
@@ -40,19 +42,21 @@ class CassandraManager:
             logger.error(f"Connection failed: {e}")
             raise
     
-    def insert_data(self, title: str, subreddit: str, text: str):
+    def insert_data(self, post_id: str, title: str, subreddit: str, text: str, post_time: datetime):
         if not self.session:
             raise Exception("No active session. Call connect() first.")
-            
-        try: 
+        
+        try:
+            post_date = post_time.date()
             self.session.execute(
-                CassandraSchema.get_insert_query(self.table), 
-                (uuid.uuid1(), title, subreddit, text, datetime.now())
+                CassandraSchema.get_insert_query(self.table),
+                (post_id, title, subreddit, text, post_date, post_time)
             )
             logger.info(f"Data inserted into table {self.table}")
         except Exception as e:
             logger.error(f"Error inserting data into table {self.table}: {e}")
             raise
+
     def close(self):
         if self.cluster:
             self.cluster.shutdown()

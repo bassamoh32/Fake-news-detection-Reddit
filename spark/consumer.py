@@ -1,13 +1,15 @@
 import os
 import sys
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, from_unixtime
-from pyspark.sql.types import StructType, StringType, FloatType, IntegerType, BooleanType, TimestampType
+from pyspark.sql.functions import col, from_json, from_unixtime, to_date, lit
+from pyspark.sql.types import (
+    StructType, StringType, DoubleType, IntegerType, BooleanType, TimestampType, FloatType
+)
 
 # Add the current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import CassandraManager
+# Import CassandraManager only if you use it to manage schema creation
 from cassandra_manager import CassandraManager
 
 def load_config(config_file):
@@ -29,25 +31,34 @@ def load_config(config_file):
 kafka_config = load_config('kafka.yml')
 cassandra_config = load_config('cassandra.yml')
 
-# Initialize Cassandra connection
+# Optional: manage Cassandra schema on startup
 cassandra = CassandraManager(
     host=cassandra_config['HOST'],
     keyspace=cassandra_config['KEYSPACE'],
-    table=cassandra_config['TABLE']
+    table=cassandra_config['TABLE'],
+    username=cassandra_config['USERNAME'],
+    password=cassandra_config['PASSWORD']
 )
 cassandra.connect()
 
 def process_batch(df, batch_id):
     """Process each batch of data and write to Cassandra"""
-    if not df.isEmpty():
+    if df.head(1):  # Safe and efficient way to check non-empty
         print(f"Processing batch {batch_id} with {df.count()} records")
-
         try:
-            # Select only required columns
-            final_df = df.select("id", "timestamp", "subreddit", "text", "title") \
-                         .filter(col("id").isNotNull() & col("timestamp").isNotNull())
+            final_df = df.select("id", "title", "subreddit", "text", "post_time") \
+                         .withColumnRenamed("id", "post_id") \
+                         .withColumn("post_date", to_date(col("post_time"))) \
+                         .withColumn("prob_fake", lit(-1.0).cast(FloatType())) \
+                         .withColumn("prediction", lit(None).cast(StringType())) \
+                         .withColumn("last_checked", lit(None).cast(TimestampType()))
 
-            # Write to Cassandra
+            final_df = final_df.select(
+                "post_id", "title", "subreddit", "text",
+                "post_date", "post_time",
+                "prob_fake", "prediction", "last_checked"
+            )
+
             final_df.write \
                 .format("org.apache.spark.sql.cassandra") \
                 .options(
@@ -74,10 +85,10 @@ def start_spark():
         .config("spark.cassandra.connection.host", cassandra_config['HOST']) \
         .config("spark.cassandra.auth.username", cassandra_config.get('USERNAME', '')) \
         .config("spark.cassandra.auth.password", cassandra_config.get('PASSWORD', '')) \
-        .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoints") \
+        .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoints/reddit") \
         .getOrCreate()
 
-    # Define schema for Reddit data
+    # Define schema for Reddit Kafka data
     schema = StructType() \
         .add("id", StringType()) \
         .add("title", StringType()) \
@@ -85,7 +96,7 @@ def start_spark():
         .add("subreddit", StringType()) \
         .add("upvotes", IntegerType()) \
         .add("url", StringType()) \
-        .add("created_utc", FloatType()) \
+        .add("created_utc", DoubleType()) \
         .add("text", StringType()) \
         .add("is_self", BooleanType())
 
@@ -97,18 +108,18 @@ def start_spark():
         .option("startingOffsets", "earliest") \
         .load()
 
-    # Parse the JSON data
+    # Parse JSON and extract fields
     json_df = df.selectExpr("CAST(value AS STRING) as json_str") \
         .select(from_json(col("json_str"), schema).alias("data")) \
         .select("data.*")
 
-    # Add timestamp column
+    # Add `post_time` column from `created_utc`
     processed_df = json_df.withColumn(
-        "timestamp",
+        "post_time",
         from_unixtime(col("created_utc")).cast(TimestampType())
     )
 
-    # Write to Cassandra
+    # Write to Cassandra using foreachBatch
     query = processed_df.writeStream \
         .foreachBatch(process_batch) \
         .start()

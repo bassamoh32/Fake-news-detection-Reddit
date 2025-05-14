@@ -107,7 +107,18 @@ services:
       - ./configuration:/app/configuration
     networks:
       - RedditPipeline
-
+  classifer:
+    build:
+      context: .
+      dockerfile: ./model/Dockerfile
+    depends_on:
+      - cassandra
+    volumes:
+      - ./configuration:/app/configuration
+    networks:
+      - RedditPipeline
+    restart: always
+     
 volumes:
   cassandra-data:
 
