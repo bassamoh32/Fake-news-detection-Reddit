@@ -1,3 +1,4 @@
+import sys, os
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import DCAwareRoundRobinPolicy
@@ -6,7 +7,8 @@ import uuid
 import logging
 
 logger = logging.getLogger(__name__)
-from utils.schema import CassandraSchema
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from cassandra_utils.schema import CassandraSchema
 
 class CassandraManager:
     def __init__(self, host: str, keyspace: str, table: str, username: str, password: str):
@@ -41,7 +43,12 @@ class CassandraManager:
         except Exception as e:
             logger.error(f"Connection failed: {e}")
             raise
-    
+    def get_session(self):
+        """Returns the active Cassandra session"""
+        if not self.session:
+            raise RuntimeError("No active session. Did you call connect()?")
+        return self.session
+
     def insert_data(self, post_id: str, title: str, subreddit: str, text: str, post_time: datetime):
         if not self.session:
             raise Exception("No active session. Call connect() first.")

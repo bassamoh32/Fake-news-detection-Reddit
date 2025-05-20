@@ -9,18 +9,21 @@ import time
 import yaml
 from datetime import datetime
 
-# Load model and tokenizer
-model_path = "./final_model"
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
+model_path = os.path.join(os.path.dirname(__file__), "final_model")
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"Model directory not found at: {model_path}")
+
 tokenizer = RobertaTokenizer.from_pretrained(model_path)
 model = RobertaForSequenceClassification.from_pretrained(model_path)
 model.eval()
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'spark'))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Now you can import cassandra_manager
-from spark.cassandra_manager import CassandraManager
+from cassandra_utils.cassandra_manager import CassandraManager
 
-# Load configuration
 def load_config(config_file):
     config_path = os.path.join(os.path.dirname(__file__), '..', 'configuration', config_file)
     with open(config_path) as f:

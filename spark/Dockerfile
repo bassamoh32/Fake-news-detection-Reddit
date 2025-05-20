@@ -2,21 +2,22 @@ FROM bitnami/spark:latest
 
 WORKDIR /app
 
-# Copy only necessary files
+# Create proper package structure
+COPY ./cassandra_utils /app/cassandra_utils
+COPY ./spark/consumer.py /app/  
 COPY ./spark/requirements.txt .
-COPY ./spark /app
 
 # Install dependencies
-RUN pip install --no-cache-dir --upgrade -r requirements.txt 
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Set Python path
+# Set Python path to include /app and its subdirectories
 ENV PYTHONPATH=/app
 
-CMD ["spark-submit", \
-    "--master", "spark://spark-master:7077", \
-    "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.1,com.datastax.spark:spark-cassandra-connector_2.12:3.2.0", \
-    "--conf", "spark.cassandra.connection.host=cassandra", \
-    "--conf", "spark.cassandra.connection.port=9042", \
-    "--conf", "spark.cassandra.auth.username=admin", \
-    "--conf", "spark.cassandra.auth.password=admin", \
-    "/app/consumer.py"]
+#CMD ["spark-submit", \
+ #   "--master", "spark://spark-master:7077", \
+  #  "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.1,com.datastax.spark:spark-cassandra-connector_2.12:3.2.0", \
+  # "--conf", "spark.cassandra.connection.host=cassandra", \
+  #  "--conf", "spark.cassandra.connection.port=9042", \
+  #  "--conf", "spark.cassandra.auth.username=admin", \
+  #  "--conf", "spark.cassandra.auth.password=admin", \
+  #  "/app/consumer.py"]

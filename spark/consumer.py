@@ -6,11 +6,8 @@ from pyspark.sql.types import (
     StructType, StringType, DoubleType, IntegerType, BooleanType, TimestampType, FloatType
 )
 
-# Add the current directory to Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Import CassandraManager only if you use it to manage schema creation
-from cassandra_manager import CassandraManager
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from cassandra_utils.cassandra_manager import CassandraManager
 
 def load_config(config_file):
     """Load YAML configuration file from ./configuration/ directory"""

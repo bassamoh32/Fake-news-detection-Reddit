@@ -9,4 +9,6 @@ RUN pip install --no-cache-dir \
     python-dotenv==0.19.2 \
     PyYAML==6.0.2
 
-CMD ["python", "kafka/producer.py"]
+ENV PYTHONPATH=/app
+
+#CMD ["python", "kafka/producer.py"]

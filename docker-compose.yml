@@ -40,9 +40,6 @@ services:
     networks:
       - RedditPipeline
 
-
-
-
   spark-master:
     image: bitnami/spark:latest
     hostname: spark-master
@@ -50,7 +47,7 @@ services:
     command: ["spark-class", "org.apache.spark.deploy.master.Master"]
     ports:
       - "7070:7070"
-      - "8080:8080"
+      - "8081:8080"
     networks:
       - RedditPipeline
   
@@ -87,7 +84,8 @@ services:
       - kafka
       - cassandra
     volumes:
-      - ./configuration:/app/configuration
+      - ./configuration:/app/configuration  # Keep only config volumes
+      - ./cassandra_utils:/app/cassandra_utils
     networks:
       - RedditPipeline
     
@@ -105,23 +103,137 @@ services:
     volumes:
       - cassandra-data:/var/lib/cassandra
       - ./configuration:/app/configuration
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - RedditPipeline
-  classifer:
+  classifier:
     build:
       context: .
-      dockerfile: ./model/Dockerfile
+      dockerfile: ./model/Dockerfile  # Changed to use the main Dockerfile
     depends_on:
-      - cassandra
+      cassandra:
+         condition: service_healthy
     volumes:
       - ./configuration:/app/configuration
+      - ./model:/app/model  # Add model volume
+      - ./spark:/app/spark  # Add spark volume
+      - ./cassandra_utils:/app/cassandra_utils
+    environment:
+      - PYTHONPATH=/app  # Ensure Python can find your modules
     networks:
       - RedditPipeline
     restart: always
-     
-volumes:
-  cassandra-data:
+  # Add to docker-compose.yml
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - RedditPipeline
+    depends_on:
+      - cassandra
 
+  airflow-webserver:
+    image: apache/airflow:2.5.1
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./model:/app/model
+      - ./kafka:/app/kafka
+      - ./spark:/app/spark
+      - ./configuration:/app/configuration
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      until airflow db check; do sleep 5; done &&
+      airflow db init &&
+      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+      airflow webserver
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /opt/airflow/airflow-webserver.pid ]"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - RedditPipeline
+
+  airflow-scheduler:
+    image: apache/airflow:2.5.1
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./model:/app/model
+    command: >
+      bash -c "
+      until airflow db check; do sleep 5; done &&
+      airflow scheduler
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f /opt/airflow/airflow-scheduler.pid ]"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - RedditPipeline
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - RedditPipeline
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - RedditPipeline
+volumes:
+  postgres-db-volume: 
+  cassandra-data: 
 networks:
   RedditPipeline:
-      driver: bridge

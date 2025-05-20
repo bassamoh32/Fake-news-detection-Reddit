@@ -59,7 +59,7 @@ def fetch_posts():
                 print(f"⏭️ Skipping duplicate post: {post.title[:50]}...")
         
         time.sleep(reddit_config.get('SUBREDDIT_DELAY', 2))
-
+          
 if __name__ == "__main__":
     try:
         while True:
