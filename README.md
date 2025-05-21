@@ -16,15 +16,7 @@ This pipeline analyzes the reliability of news shared on Reddit by:
    - User
    - News domain
    - Time period
-
-## 📊 Key Metrics Calculated
-
-| Metric                | Description                          | Detection Method               |
-|-----------------------|--------------------------------------|---------------------------------|
-| Fake News Probability | 0-100% likelihood of being false     | RoBERTa classifier             |
-| Source Reliability    | Historical accuracy of domain        | Cassandra lookup               |
-| User Credibility      | OP's past submission accuracy        | User history analysis          |
-| Verification Density  | Cross-links to reputable sources     | URL analysis                   |
+     |
 
 ## 🚀 Quick Deployment
 
