@@ -3,3 +3,5 @@
 airflow/logs
 airflow/plugins
 airflow/dags/__pycache__
+cassandra_utils/__pycache__
+cassandra_utils/__init__.py
