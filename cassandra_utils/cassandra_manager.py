@@ -44,7 +44,6 @@ class CassandraManager:
             logger.error(f"Connection failed: {e}")
             raise
     def get_session(self):
-        """Returns the active Cassandra session"""
         if not self.session:
             raise RuntimeError("No active session. Did you call connect()?")
         return self.session

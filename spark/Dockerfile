@@ -2,15 +2,12 @@ FROM bitnami/spark:latest
 
 WORKDIR /app
 
-# Create proper package structure
 COPY ./cassandra_utils /app/cassandra_utils
 COPY ./spark/consumer.py /app/  
 COPY ./spark/requirements.txt .
 
-# Install dependencies
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Set Python path to include /app and its subdirectories
 ENV PYTHONPATH=/app
 
 #CMD ["spark-submit", \

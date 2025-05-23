@@ -31,7 +31,6 @@ def load_config(config_file):
 
 cassandra_config = load_config('cassandra.yml')
 
-# Cassandra config variables
 CHECK_INTERVAL = 20
 PROCESS_LIMIT = 50
 CASSANDRA_HOSTS = cassandra_config['HOST']
@@ -40,7 +39,6 @@ TABLE = cassandra_config['TABLE']
 USERNAME = cassandra_config['USERNAME']
 PASSWORD = cassandra_config['PASSWORD']
 
-# Connect to Cassandra using your CassandraManager
 cassandra = CassandraManager(
     host=CASSANDRA_HOSTS,
     keyspace=KEYSPACE,
@@ -51,7 +49,6 @@ cassandra = CassandraManager(
 cassandra.connect()
 session = cassandra.get_session()
 
-# Prepare the update statement
 update_stmt = session.prepare(f"""
     UPDATE {TABLE}
     SET prob_fake = ?,
@@ -62,7 +59,6 @@ update_stmt = session.prepare(f"""
     AND post_id = ?
 """)
 
-# Classification logic
 def classify_text(text):
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
     with torch.no_grad():
@@ -85,19 +81,16 @@ def process_posts():
         print("No recent posts found")
         return 0
 
-    # Filter unclassified
     unclassified = data[data['prob_fake'].isin([None, -1.0])].head(PROCESS_LIMIT)
     if unclassified.empty:
         print("No unclassified posts in recent batch")
         return 0
 
-    # Classify
     unclassified['combined_text'] = unclassified['title'].fillna('') + " " + unclassified['text'].fillna('')
     unclassified['prob_fake'] = unclassified['combined_text'].apply(classify_text)
     unclassified = unclassified.dropna(subset=['prob_fake'])
     unclassified['prediction'] = unclassified['prob_fake'].apply(lambda p: 'Fake' if p > 0.85 else 'True')
 
-    # Update in Cassandra
     today = datetime.utcnow().date()
     for _, row in unclassified.iterrows():
         try:

@@ -10,7 +10,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from cassandra_utils.cassandra_manager import CassandraManager
 
 def load_config(config_file):
-    """Load YAML configuration file from ./configuration/ directory"""
     config_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         'configuration',
@@ -24,11 +23,9 @@ def load_config(config_file):
         print(f"Failed to load config {config_file}: {str(e)}")
         raise
 
-# Load configurations
 kafka_config = load_config('kafka.yml')
 cassandra_config = load_config('cassandra.yml')
 
-# Optional: manage Cassandra schema on startup
 cassandra = CassandraManager(
     host=cassandra_config['HOST'],
     keyspace=cassandra_config['KEYSPACE'],
@@ -39,8 +36,7 @@ cassandra = CassandraManager(
 cassandra.connect()
 
 def process_batch(df, batch_id):
-    """Process each batch of data and write to Cassandra"""
-    if df.head(1):  # Safe and efficient way to check non-empty
+    if df.head(1):  
         print(f"Processing batch {batch_id} with {df.count()} records")
         try:
             final_df = df.select("id", "title", "subreddit", "text", "post_time") \
@@ -97,7 +93,6 @@ def start_spark():
         .add("text", StringType()) \
         .add("is_self", BooleanType())
 
-    # Read from Kafka
     df = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", kafka_config['BROKER']) \
@@ -105,18 +100,18 @@ def start_spark():
         .option("startingOffsets", "earliest") \
         .load()
 
-    # Parse JSON and extract fields
+    
     json_df = df.selectExpr("CAST(value AS STRING) as json_str") \
         .select(from_json(col("json_str"), schema).alias("data")) \
         .select("data.*")
 
-    # Add `post_time` column from `created_utc`
+    
     processed_df = json_df.withColumn(
         "post_time",
         from_unixtime(col("created_utc")).cast(TimestampType())
     )
 
-    # Write to Cassandra using foreachBatch
+    
     query = processed_df.writeStream \
         .foreachBatch(process_batch) \
         .start()

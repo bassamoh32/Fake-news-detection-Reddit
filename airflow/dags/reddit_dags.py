@@ -4,7 +4,6 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from datetime import datetime, timedelta
 import logging
 
-# Logger configuration
 logger = logging.getLogger('reddit_pipeline')
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
@@ -29,11 +28,9 @@ with DAG(
     tags=['reddit', 'kafka', 'spark'],
 ) as dag:
 
-    # Start/End markers
     start_task = EmptyOperator(task_id='start_pipeline')
     end_task = EmptyOperator(task_id='end_pipeline')
 
-    # Kafka Producer Task (using port 19092)
     run_producer = DockerOperator(
         task_id='run_kafka_producer',
         image='kafka-producer:latest',
@@ -52,7 +49,6 @@ with DAG(
         retries=2
     )
 
-    # Spark Streaming Task
     start_streaming = DockerOperator(
         task_id='run_spark_streaming',
         image='reddit_pipeline-spark-streaming:latest',
@@ -74,12 +70,11 @@ with DAG(
         environment={
             'PYTHONPATH': '/app',
             'SPARK_HOME': '/opt/bitnami/spark',
-            'KAFKA_BOOTSTRAP_SERVERS': 'kafka:19092'  # Also here if Spark consumes from Kafka
+            'KAFKA_BOOTSTRAP_SERVERS': 'kafka:19092'  
         },
         mem_limit='4g'
     )
 
-    # Classification Task
     classification_task = DockerOperator(
         task_id='run_classification',
         image='classification-model:latest',
@@ -90,5 +85,4 @@ with DAG(
         mem_limit='2g'
     )
 
-    # Task dependencies
     start_task >> run_producer >> start_streaming >> classification_task >> end_task

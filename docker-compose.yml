@@ -84,7 +84,7 @@ services:
       - kafka
       - cassandra
     volumes:
-      - ./configuration:/app/configuration  # Keep only config volumes
+      - ./configuration:/app/configuration  
       - ./cassandra_utils:/app/cassandra_utils
     networks:
       - RedditPipeline
@@ -113,21 +113,20 @@ services:
   classifier:
     build:
       context: .
-      dockerfile: ./model/Dockerfile  # Changed to use the main Dockerfile
+      dockerfile: ./model/Dockerfile  
     depends_on:
       cassandra:
          condition: service_healthy
     volumes:
       - ./configuration:/app/configuration
-      - ./model:/app/model  # Add model volume
-      - ./spark:/app/spark  # Add spark volume
+      - ./model:/app/model 
+      - ./spark:/app/spark  
       - ./cassandra_utils:/app/cassandra_utils
     environment:
-      - PYTHONPATH=/app  # Ensure Python can find your modules
+      - PYTHONPATH=/app  
     networks:
       - RedditPipeline
     restart: always
-  # Add to docker-compose.yml
   grafana:
     image: grafana/grafana
     ports:
